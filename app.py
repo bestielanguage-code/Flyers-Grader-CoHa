@@ -49,7 +49,7 @@ if role == "Học sinh nộp bài":
 
     if st.button("Gửi bài cho Cô Hà 🚀"):
         if name and writing:
-            with st.spinner("Cô Hà đang chấm bài..."):
+            with st.spinner("Cô Hà đang xem kỹ bài..."):
                 try:
                     prompt = f"""
                     Bạn là cô Hà giáo viên tiếng Anh chấm Flyers cho {name}. Đề: {topic}. Bài: {writing}.
@@ -84,7 +84,7 @@ if role == "Học sinh nộp bài":
 # --- 5. CHẾ ĐỘ DASHBOARD ---
 else:
     st.title("📊 Dashboard Cô Hà")
-    password = st.sidebar.text_input("Mật khẩu:", type="password")
+    password = st.sidebar.text_input("Nhập mật khẩu giáo viên:", type="password")
     if password == st.secrets.get("TEACHER_PASSWORD", "CoHa9.0"):
         try:
             data = sheet.get_all_records()
