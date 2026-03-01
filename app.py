@@ -18,8 +18,11 @@ except Exception as e:
     st.error(f"Lỗi kết nối Sheets: {e}")
 
 # --- 2. CẤU HÌNH AI GEMINI ---
-API_KEY = st.secrets["GEMINI_API_KEY"]
-client_ai = genai.Client(api_key=API_KEY)
+try:
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+    client_ai = genai.Client(api_key=API_KEY)
+except Exception as e:
+    st.error(f"Lỗi API Key: {e}")
 
 # --- 3. GIAO DIỆN ---
 st.set_page_config(page_title="Flyers Grader", page_icon="✍️", layout="wide")
@@ -36,18 +39,18 @@ if role == "Học sinh nộp bài":
         if name and writing:
             with st.spinner("Cô Hà đang chấm bài..."):
                 try:
-                    # PROMPT ÉP AI TRẢ VỀ CHUỖI VĂN BẢN KHÔNG PHẢI LIST
+                    # Dùng model gemini-2.0-flash-001 mới nhất
                     prompt = f"""
                     Bạn là cô Hà chấm Flyers cho {name}. Đề: {topic}. Bài: {writing}.
                     NHIỆM VỤ:
-                    1. Annotated: Sửa TẤT CẢ lỗi (viết hoa, dấu câu, ngữ pháp). Dùng <strike style='color: #FF6B6B;'>sai</strike> <span style='color: #4ECDC4; font-weight: bold;'>đúng</span>.
-                    2. Feedback: Viết ngắn gọn 3 mục (KHÔNG HTML, KHÔNG LIST): 
+                    1. Annotated: Sửa TẤT CẢ lỗi chính tả, ngữ pháp, VIẾT HOA, DẤU CÂU. Dùng <strike style='color: #FF6B6B;'>sai</strike> <span style='color: #4ECDC4; font-weight: bold;'>đúng</span>.
+                    2. Feedback: Viết ngắn gọn 3 mục rõ ràng (KHÔNG TRẢ VỀ LIST/DANH SÁCH):
                        TỔNG KẾT LỖI & GIẢI PHÁP: ...
                        LEVEL UP: ...
                        KHÍCH LỆ: ...
-                    TRẢ VỀ JSON: {{"score":"X/5 Shields", "annotated":"HTML...", "feedback":"Chuỗi văn bản 3 mục"}}
+                    TRẢ VỀ DUY NHẤT 1 KHỐI JSON: {{"score":"X/5 Shields", "annotated":"HTML", "feedback":"Văn bản 3 mục"}}
                     """
-                    response = client_ai.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+                    response = client_ai.models.generate_content(model='gemini-2.0-flash-001', contents=prompt)
                     match = re.search(r'\{.*\}', response.text, re.DOTALL)
                     if match:
                         data = json.loads(match.group().replace('\n', ' ').replace('\r', ''))
@@ -59,6 +62,16 @@ if role == "Học sinh nộp bài":
                         # Lưu vào Sheets
                         now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                         sheet.append_row([now, name, topic, writing, data.get('score'), data.get('feedback')])
-                        st.toast("Đã lưu vào Sheets! ✅")
+                        st.toast("Đã nộp bài thành công! ✅")
                 except Exception as e:
                     st.error(f"Lỗi: {e}")
+else:
+    # --- DASHBOARD ---
+    st.title("📊 Dashboard Cô Hà")
+    password = st.sidebar.text_input("Mật khẩu:", type="password")
+    if password == st.secrets["TEACHER_PASSWORD"]:
+        data = sheet.get_all_records()
+        if data:
+            df = pd.DataFrame(data)
+            st.metric("Tổng bài chấm", len(df))
+            st.dataframe(df)
