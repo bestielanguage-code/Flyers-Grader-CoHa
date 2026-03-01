@@ -1,19 +1,17 @@
 import streamlit as st
-import google.generativeai as openai
+from google import genai
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import json
-import re
-import pandas as pd
+import json, re, pandas as pd
 from datetime import datetime
 
-# --- 1. KẾT NỐI GOOGLE SHEETS ---
+# --- 1. KẾT NỐI SHEETS THÔNG MINH ---
 try:
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     # Tự động chọn: Online dùng Secrets, Local dùng file key.json
     if "gcp_service_account" in st.secrets:
-        creds_info = st.secrets["gcp_service_account"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
+        creds_dict = st.secrets["gcp_service_account"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     else:
         creds = ServiceAccountCredentials.from_json_keyfile_name("key.json", scope)
         
@@ -22,11 +20,9 @@ try:
 except Exception as e:
     st.error(f"Lỗi kết nối Sheets: {e}")
 
-# --- 2. CẤU HÌNH AI GEMINI ---
-API_KEY = st.secrets["GEMINI_API_KEY"]
-openai.configure(api_key=API_KEY)
-# Dùng model ổn định nhất hiện nay
-model = openai.GenerativeModel('gemini-1.5-flash')
+# --- 2. CẤU HÌNH AI (Fix lỗi 404) ---
+API_KEY = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else "Dán_API_Key_Vào_Đây"
+client_ai = genai.Client(api_key=API_KEY)
 
 # --- 3. GIAO DIỆN ---
 st.set_page_config(page_title="Flyers Grader", page_icon="✍️", layout="wide")
@@ -42,24 +38,31 @@ if role == "Học sinh nộp bài":
         if name and writing:
             with st.spinner("Cô Hà đang chấm bài..."):
                 try:
-                    prompt = f"""
-                    Bạn là cô Hà chấm Flyers cho {name}. Đề: {topic}. Bài: {writing}.
-                    Sửa lỗi dùng <strike style='color: #FF6B6B;'>sai</strike> <span style='color: #4ECDC4; font-weight: bold;'>đúng</span>.
-                    Feedback viết 3 mục: Tổng kết lỗi, Level Up, Khích lệ.
-                    TRẢ VỀ JSON CHUẨN: {{"score":"X/5 Shields", "annotated":"HTML...", "feedback":"Lời dặn..."}}
-                    """
-                    response = model.generate_content(prompt)
-                    # Xử lý text để lấy JSON sạch
-                    clean_text = re.search(r'\{.*\}', response.text, re.DOTALL).group()
-                    data = json.loads(clean_text)
+                    prompt = f"""Bạn là cô Hà chấm Flyers cho {name}. Đề: {topic}. Bài: {writing}. 
+                    1. Annotated: Sửa lỗi dùng <strike style='color:#FF6B6B;'>sai</strike> <span style='color:#4ECDC4;font-weight:bold;'>đúng</span>. 
+                    2. Feedback: Viết ngắn 3 mục: Tổng kết lỗi, Level Up, Khích lệ. 
+                    TRẢ VỀ JSON: {{"score":"X/5 Shields", "annotated":"HTML", "feedback":"văn bản thuần"}}"""
+                    
+                    # SỬA MODEL THÀNH 'gemini-1.5-flash' ĐỂ ỔN ĐỊNH TUYỆT ĐỐI
+                    response = client_ai.models.generate_content(model='gemini-1.5-flash', contents=prompt)
+                    data = json.loads(re.search(r'\{.*\}', response.text, re.DOTALL).group().replace('\n', ' '))
                     
                     st.balloons()
                     st.markdown(f"### 🏆 Kết quả của {name}: {data['score']}")
-                    st.markdown(f'<div style="background-color: #1E1E1E; padding: 20px; border-radius: 10px;">{data["annotated"]}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="background-color:#1E1E1E;padding:25px;border-radius:12px;line-height:2;">{data["annotated"]}</div>', unsafe_allow_html=True)
                     st.info(data['feedback'])
                     
                     # Lưu vào Sheets
-                    sheet.append_row([datetime.now().strftime("%d/%m/%Y %H:%M:%S"), name, topic, writing, data['score'], data['feedback']])
+                    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                    sheet.append_row([now, name, topic, writing, data['score'], data['feedback']])
                     st.toast("Đã nộp bài thành công! ✅")
                 except Exception as e:
                     st.error(f"Lỗi AI: {e}")
+else:
+    # Dashboard cho Hà
+    st.title("📊 Dashboard Cô Hà")
+    password = st.sidebar.text_input("Mật khẩu:", type="password")
+    if password == st.secrets.get("TEACHER_PASSWORD", "CoHa9.0"):
+        df = pd.DataFrame(sheet.get_all_records())
+        st.metric("Tổng bài chấm", len(df))
+        st.dataframe(df, use_container_width=True)
