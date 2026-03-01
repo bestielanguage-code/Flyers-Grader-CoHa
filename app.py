@@ -1,41 +1,31 @@
 import streamlit as st
-from google import genai
+import google.generativeai as genai
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
 import re
-import pandas as pd
-from datetime import datetime
 
-# --- 1. KẾT NỐI GOOGLE SHEETS (BẢO MẬT) ---
+# --- KẾT NỐI BẢO MẬT ---
 try:
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
-    # Kiểm tra xem đang chạy online (có Secrets) hay chạy local
+    # Nếu chạy Online, lấy từ Secrets. Nếu chạy Local, lấy từ file key.json
     if "gcp_service_account" in st.secrets:
-        # Chạy online trên Streamlit Cloud
-        creds_info = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
     else:
-        # Chạy local (cần file key.json trong cùng thư mục)
         creds = ServiceAccountCredentials.from_json_keyfile_name("key.json", scope)
-        
+    
     client_sheet = gspread.authorize(creds)
     sheet = client_sheet.open("HaWritingApp_Database").sheet1
 except Exception as e:
-    st.error(f"Lỗi kết nối Sheets: {e}")
+    st.error(f"Lỗi kết nối: {e}")
 
-# --- 2. CẤU HÌNH AI GEMINI (BẢO MẬT) ---
-# Lấy API KEY từ Secrets nếu online, nếu không thì dùng tạm key mặc định (Hà nên thay key thật vào đây khi test local)
-API_KEY = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else "AIzaSy..." 
-client_ai = genai.Client(api_key=API_KEY)
+# Cấu hình AI (Sửa lỗi 404)
+API_KEY = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else "KEY_TAM_LOCAL"
+genai.configure(api_key=API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash') # Model ổn định nhất hiện nay
 
-# --- 3. THIẾT LẬP GIAO DIỆN ---
-st.set_page_config(page_title="Flyers Grader & Dashboard", page_icon="✍️", layout="wide")
-
-st.sidebar.title("💎 Cổng Điều Hướng")
-role = st.sidebar.selectbox("Bạn là ai?", ["Học sinh nộp bài", "Cô Hà quản lý"])
-
+# --- PHẦN GIAO DIỆN GIỮ NGUYÊN NHƯ CŨ CỦA HÀ ---
+# ... (Phần code hiển thị của Hà dán tiếp vào đây)
 # --- 4. CHẾ ĐỘ HỌC SINH NỘP BÀI ---
 if role == "Học sinh nộp bài":
     st.title("Flyers Writing Grader - Cô Hà ✍️")
