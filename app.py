@@ -2,171 +2,54 @@ import streamlit as st
 from google import genai
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import json
-import re
-import pandas as pd
+import json, re, pandas as pd
 from datetime import datetime
-import os
 
-# ==============================
-# 1️⃣ GOOGLE SHEETS CONNECTION
-# ==============================
-
-def connect_sheets():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
-
-    # Nếu chạy ONLINE → dùng st.secrets
+# --- 1. KẾT NỐI SHEETS THÔNG MINH ---
+try:
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    # Tự động detect môi trường
     if "google_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["google_service_account"])
+        creds_dict = st.secrets["google_service_account"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-
-    # Nếu chạy LOCAL → dùng key.json
     else:
         creds = ServiceAccountCredentials.from_json_keyfile_name("key.json", scope)
-
-    client = gspread.authorize(creds)
-    return client.open("HaWritingApp_Database").sheet1
-
-
-try:
-    sheet = connect_sheets()
+        
+    client_sheet = gspread.authorize(creds)
+    sheet = client_sheet.open("HaWritingApp_Database").sheet1
 except Exception as e:
-    st.error(f"Lỗi kết nối Google Sheets: {e}")
+    st.error(f"Lỗi kết nối Sheets: {e}")
 
+# --- 2. CẤU HÌNH AI ---
+API_KEY = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else "Dán_Key_Local_Của_Hà"
+client_ai = genai.Client(api_key=API_KEY)
 
-# ==============================
-# 2️⃣ GEMINI CONFIG
-# ==============================
-
-def get_gemini_client():
-    if "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-    else:
-        api_key = os.getenv("GEMINI_API_KEY")
-
-    return genai.Client(api_key=api_key)
-
-
-client_ai = get_gemini_client()
-
-
-# ==============================
-# 3️⃣ STREAMLIT UI
-# ==============================
-
-st.set_page_config(page_title="Flyers Grader", page_icon="✍️", layout="wide")
-
-st.sidebar.title("💎 Cổng Điều Hướng")
+# --- 3. GIAO DIỆN ---
+st.set_page_config(page_title="Flyers Grader", layout="wide")
 role = st.sidebar.selectbox("Bạn là ai?", ["Học sinh nộp bài", "Cô Hà quản lý"])
 
-
-# ==============================
-# 4️⃣ STUDENT MODE
-# ==============================
-
 if role == "Học sinh nộp bài":
-
     st.title("Flyers Writing Grader - Cô Hà ✍️")
-
     name = st.text_input("Tên của con:")
     topic = st.text_input("Đề bài:")
-    writing = st.text_area("Bài viết:", height=250)
+    writing = st.text_area("Bài viết của con:", height=250)
 
-    if st.button("Gửi bài 🚀"):
-
+    if st.button("Gửi bài cho Cô Hà 🚀"):
         if name and writing:
-
             with st.spinner("Cô Hà đang chấm bài..."):
-
                 try:
-
-                    prompt = f"""
-Bạn là giáo viên chấm Flyers.
-
-BẮT BUỘC TRẢ VỀ JSON HỢP LỆ.
-KHÔNG giải thích.
-KHÔNG markdown.
-
-FORMAT:
-
-{{
-  "score": "X/5 Shields",
-  "annotated": "HTML sửa bài",
-  "feedback": "3 mục text thuần"
-}}
-
-Đề: {topic}
-Học sinh: {name}
-Bài viết:
-{writing}
-"""
-
-                    response = client_ai.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=prompt
-                    )
-
-                    # Lấy JSON an toàn
-                    text = response.text.strip()
-
-                    match = re.search(r'\{.*\}', text, re.DOTALL)
-                    if not match:
-                        raise ValueError("AI không trả về JSON")
-
-                    data = json.loads(match.group())
-
-                    st.success(f"🏆 {data['score']}")
-                    st.markdown(data["annotated"], unsafe_allow_html=True)
-                    st.info(data["feedback"])
-
-                    # Save to Sheets
-                    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                    sheet.append_row([
-                        now,
-                        name,
-                        topic,
-                        writing,
-                        data["score"],
-                        data["feedback"]
-                    ])
-
-                    st.toast("Đã lưu bài thành công ✅")
-
+                    prompt = f"Bạn là cô Hà chấm Flyers cho {name}. Đề: {topic}. Bài: {writing}. Trả về JSON: {{\"score\":\"X/5 Shields\", \"annotated\":\"HTML\", \"feedback\":\"văn bản\"}}"
+                    # Dùng model ổn định nhất trên Cloud
+                    response = client_ai.models.generate_content(model='gemini-1.5-flash', contents=prompt)
+                    data = json.loads(re.search(r'\{.*\}', response.text, re.DOTALL).group())
+                    
+                    st.balloons()
+                    st.markdown(f"### 🏆 Kết quả: {data['score']}")
+                    st.markdown(f'<div style="background-color:#1E1E1E;padding:20px;border-radius:12px;">{data["annotated"]}</div>', unsafe_allow_html=True)
+                    st.info(data['feedback'])
+                    
+                    # Đổ dữ liệu về Sheets
+                    sheet.append_row([datetime.now().strftime("%d/%m/%Y %H:%M:%S"), name, topic, writing, data['score'], data['feedback']])
+                    st.toast("Đã lưu vào Sheets! ✅")
                 except Exception as e:
-                    st.error(f"Lỗi AI hoặc Sheets: {e}")
-
-        else:
-            st.warning("Điền đủ tên và bài viết nha!")
-
-
-# ==============================
-# 5️⃣ DASHBOARD MODE
-# ==============================
-
-else:
-
-    st.title("📊 Dashboard")
-
-    password = st.sidebar.text_input("Nhập mật khẩu:", type="password")
-
-    if password == "CoHa9.0":
-
-        try:
-            rows = sheet.get_all_records()
-
-            if rows:
-                df = pd.DataFrame(rows)
-                st.dataframe(df, use_container_width=True)
-
-                st.bar_chart(df.iloc[:,1].value_counts())
-            else:
-                st.info("Chưa có dữ liệu.")
-
-        except Exception as e:
-            st.error(f"Lỗi Dashboard: {e}")
-
-    elif password != "":
-        st.error("Sai mật khẩu!")
+                    st.error(f"Lỗi: {e}")
